@@ -25,3 +25,17 @@ body {
 .tnum {
   font-variant-numeric: tabular-nums;
 }
+
+/* 乗車演出: 閃光フラッシュ */
+@keyframes screen-flash {
+  0%   { opacity: 0.45; }
+  100% { opacity: 0; }
+}
+
+/* 乗車演出: +km ポップアップ */
+@keyframes km-pop {
+  0%   { opacity: 0; transform: translateY(16px) scale(0.75); }
+  18%  { opacity: 1; transform: translateY(0px) scale(1.15); }
+  55%  { opacity: 1; transform: translateY(-18px) scale(1); }
+  100% { opacity: 0; transform: translateY(-55px) scale(0.88); }
+}

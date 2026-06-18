@@ -2,10 +2,8 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 
-// GitHub Pages デプロイ時はリポジトリ名に合わせて base を設定する(Phase 3)。
-// 例: base: "/railmap/"。ローカル開発と相対配信のため既定は "./"。
 export default defineConfig({
-  base: "./",
+  base: "/railmap/",
   plugins: [
     react(),
     VitePWA({

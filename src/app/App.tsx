@@ -38,6 +38,11 @@ export function App() {
   // §7.2 トースト
   const [toastName, setToastName] = useState<string | null>(null);
 
+  // 乗車演出: 閃光フラッシュ(key が変わるたびに再アニメ)
+  const [flashKey, setFlashKey] = useState(0);
+  // 乗車演出: +km ポップ
+  const [kmPop, setKmPop] = useState<{ key: number; km: number } | null>(null);
+
   const data = useRailStore((s) => s.data);
   const toggleRide = useRailStore((s) => s.toggleRide);
   const isRidden  = useRailStore((s) => s.isRidden);
@@ -106,9 +111,14 @@ export function App() {
     const wasRidden = isRidden(selectedLineId);
 
     if (!wasRidden) {
+      const addedKm = meta.lines[selectedLineId]?.lengthKm ?? 0;
       toggleRide(selectedLineId);
       if (data.settings.sound) playPon();
       if (reducedMotion) return;
+
+      // 閃光フラッシュ + km ポップ
+      setFlashKey(k => k + 1);
+      setKmPop({ key: Date.now(), km: addedKm });
 
       const prevRatio = displayRatio;
       const nextRatio = nationalRatio(meta, { ...data.rides, [selectedLineId]: { status: "full", count: 1 } });
@@ -237,6 +247,34 @@ export function App() {
         onTap={() => { setTab("achievements"); setToastName(null); }}
         onDismiss={() => setToastName(null)}
       />
+
+      {/* 乗車演出: 閃光フラッシュ(全画面白) */}
+      {flashKey > 0 && (
+        <div
+          key={flashKey}
+          className="pointer-events-none absolute inset-0 z-40 bg-white"
+          style={{ animation: "screen-flash 500ms ease-out forwards" }}
+        />
+      )}
+
+      {/* 乗車演出: +km ポップ */}
+      {kmPop && (
+        <div
+          key={kmPop.key}
+          className="pointer-events-none absolute inset-x-0 z-40 flex justify-center"
+          style={{ top: "38%", animation: "km-pop 950ms ease-out forwards" }}
+        >
+          <span
+            className="tnum text-3xl font-bold tracking-wide"
+            style={{
+              color: themeColor,
+              textShadow: `0 0 24px ${themeColor}, 0 0 48px ${themeColor}80`,
+            }}
+          >
+            +{kmPop.km.toFixed(1)} km
+          </span>
+        </div>
+      )}
 
       {loadError && (
         <div className="absolute left-1/2 top-1/2 z-30 -translate-x-1/2 -translate-y-1/2 rounded-token bg-surface px-4 py-3 text-sm text-danger">
