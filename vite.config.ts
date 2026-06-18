@@ -10,7 +10,8 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["favicon.ico", "icon.svg", "apple-touch-icon-180x180.png"],
+      // PNG/SVG/ICO は workbox の globPatterns で取得するため includeAssets は空
+      includeAssets: [],
       manifest: {
         name: "路線埋め立てマップ",
         short_name: "railmap",
