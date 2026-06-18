@@ -303,7 +303,8 @@ function animateLine(
     return;
   }
 
-  const rgba = hexToRgba(themeColor, 1);
+  // ビームは白にしてテーマカラーの線の上でも視認できるようにする(§7.1「光が走る」)
+  const rgba = "rgba(255,255,255,0.95)";
   const start = performance.now();
 
   // アニメレイヤーをこの路線に絞り込む
