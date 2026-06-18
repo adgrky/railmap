@@ -187,7 +187,7 @@ export function MapView({ riddenIds, themeColor, selectedLineId, onSelectLine, o
 
         loadedRef.current = true;
         applyRidden(map, riddenIds, themeColor);
-        applySelected(map, selectedLineId);
+        applySelected(map, selectedLineId, riddenIds);
 
         // アニメーション関数を親に渡す(§7.1)
         if (onAnimateRef) {
@@ -262,10 +262,11 @@ export function MapView({ riddenIds, themeColor, selectedLineId, onSelectLine, o
     if (map && loadedRef.current) applyRidden(map, riddenIds, themeColor);
   }, [riddenIds, themeColor]);
 
+  // riddenIds も deps に加えることで「乗った瞬間に白ハイライトを消す」を確実にする
   useEffect(() => {
     const map = mapRef.current;
-    if (map && loadedRef.current) applySelected(map, selectedLineId);
-  }, [selectedLineId]);
+    if (map && loadedRef.current) applySelected(map, selectedLineId, riddenIds);
+  }, [selectedLineId, riddenIds]);
 
   return <div ref={containerRef} className="absolute inset-0" />;
 }
@@ -279,8 +280,10 @@ function applyRidden(map: maplibregl.Map, riddenIds: string[], themeColor: strin
   // visited は line-gradient で色を持つため line-color 更新は不要
 }
 
-function applySelected(map: maplibregl.Map, selectedLineId: string | null) {
-  map.setFilter("lines-selected", ["==", ["get", "lineId"], selectedLineId ?? "__none__"]);
+// 乗済み路線は白ハイライトを出さない（乗ったらテーマ色グローのまま）
+function applySelected(map: maplibregl.Map, selectedLineId: string | null, riddenIds: string[]) {
+  const showWhite = selectedLineId !== null && !riddenIds.includes(selectedLineId);
+  map.setFilter("lines-selected", ["==", ["get", "lineId"], showWhite ? selectedLineId : "__none__"]);
 }
 
 /** §7.1 塗りアニメ: 始点→終点へ光が走る(600ms, ease-out) → グロー fade in(300ms)。 */
@@ -338,14 +341,28 @@ function animateLine(
       map.setFilter("lines-anim", ["==", ["get", "lineId"], "__none__"]);
       onComplete();
 
-      // グロー fade in (300ms, §7.1 step2)
-      const glowStart = performance.now();
-      function fadeGlow(t: number) {
-        const p = Math.min((t - glowStart) / 300, 1);
-        map.setPaintProperty("lines-glow", "line-opacity", p * 0.4);
-        if (p < 1) rafRef.current = requestAnimationFrame(fadeGlow);
+      // グロー爆発 → 収束 (§7.1 step2: 膨張150ms + 収縮350ms)
+      const BURST_DUR = 150;
+      const SETTLE_DUR = 350;
+      const burstStart = performance.now();
+      function glowBurst(t: number) {
+        const elapsed = t - burstStart;
+        if (elapsed <= BURST_DUR) {
+          const p = easeOut(Math.min(elapsed / BURST_DUR, 1));
+          map.setPaintProperty("lines-glow", "line-opacity", p * 0.9);
+          map.setPaintProperty("lines-glow", "line-width", 6 + p * 22); // 6→28px
+          rafRef.current = requestAnimationFrame(glowBurst);
+        } else if (elapsed <= BURST_DUR + SETTLE_DUR) {
+          const p = easeOut(Math.min((elapsed - BURST_DUR) / SETTLE_DUR, 1));
+          map.setPaintProperty("lines-glow", "line-opacity", Math.max(0, 0.9 - p * 0.5)); // 0.9→0.4
+          map.setPaintProperty("lines-glow", "line-width", Math.max(6, 28 - p * 22));      // 28→6px
+          rafRef.current = requestAnimationFrame(glowBurst);
+        } else {
+          map.setPaintProperty("lines-glow", "line-opacity", 0.4);
+          map.setPaintProperty("lines-glow", "line-width", 6);
+        }
       }
-      rafRef.current = requestAnimationFrame(fadeGlow);
+      rafRef.current = requestAnimationFrame(glowBurst);
     }
   }
 
