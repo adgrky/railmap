@@ -1,11 +1,15 @@
-// railmap ルート(SPEC §5.1 / §5.2 / §5.3 / §7.1)。app層。
+// railmap ルート(SPEC §5.1/§5.2/§5.3/§5.4/§7.1/§7.2/§9)。app層。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Meta, ThemeColor } from "../types";
 import { useRailStore } from "../core/store";
 import { formatRatio, nationalRatio, riddenKm } from "../core/progress";
+import { buildStats, checkNewAchievements } from "../core/achievements";
 import { MapView, type AnimateLineCallback, type FlyToCallback } from "./MapView";
 import { LineSheet } from "./LineSheet";
 import { StatsPanel } from "./StatsPanel";
+import { AchievementsView } from "./AchievementsView";
+import { AchievementToast } from "./AchievementToast";
+import { ACHIEVEMENT_DEFS } from "./achievementDefs";
 import { playPon } from "./sound";
 import { PREF_COORDS } from "./prefCoords";
 
@@ -25,17 +29,42 @@ export function App() {
   const [selectedLineId, setSelectedLineId] = useState<string | null>(null);
   const [tab, setTab] = useState<TabId>("map");
 
-  // §7.1 達成率カウントアップ表示用
+  // §7.1 カウントアップ表示
   const [displayRatio, setDisplayRatio] = useState(0);
   const countUpRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // §7.2 トースト
+  const [toastName, setToastName] = useState<string | null>(null);
+
   const data = useRailStore((s) => s.data);
   const toggleRide = useRailStore((s) => s.toggleRide);
-  const isRidden = useRailStore((s) => s.isRidden);
+  const isRidden  = useRailStore((s) => s.isRidden);
+  // 称号解除はストアの setState で直接書き込む
+  const setAchievementUnlocked = useCallback((id: string) => {
+    useRailStore.setState((s) => ({
+      data: {
+        ...s.data,
+        unlockedAchievements: {
+          ...s.data.unlockedAchievements,
+          [id]: new Date().toISOString(),
+        },
+      },
+    }));
+    // debounce保存
+    import("../core/persistence").then(({ saveData }) =>
+      saveData({
+        ...useRailStore.getState().data,
+        unlockedAchievements: {
+          ...useRailStore.getState().data.unlockedAchievements,
+          [id]: useRailStore.getState().data.unlockedAchievements[id] ?? new Date().toISOString(),
+        },
+      })
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const animateFnRef = useRef<AnimateLineCallback | null>(null);
-  const flyToFnRef = useRef<FlyToCallback | null>(null);
-
+  const flyToFnRef   = useRef<FlyToCallback | null>(null);
   const onAnimateRef = useCallback((fn: AnimateLineCallback) => { animateFnRef.current = fn; }, []);
   const onFlyToRef   = useCallback((fn: FlyToCallback)       => { flyToFnRef.current   = fn; }, []);
 
@@ -52,6 +81,18 @@ export function App() {
   const km    = meta ? riddenKm(meta, data.rides) : 0;
 
   useEffect(() => { setDisplayRatio(ratio); }, [ratio]);
+
+  // 称号チェック(rides 変化ごとに走る)
+  useEffect(() => {
+    if (!meta) return;
+    const stats = buildStats(meta, data.rides);
+    const newIds = checkNewAchievements(ACHIEVEMENT_DEFS, stats, data.unlockedAchievements);
+    for (const id of newIds) {
+      setAchievementUnlocked(id);
+      const def = ACHIEVEMENT_DEFS.find((d) => d.id === id);
+      if (def) setToastName(def.name);
+    }
+  }, [meta, data.rides, data.unlockedAchievements, setAchievementUnlocked]);
 
   const selectedMeta = selectedLineId && meta ? meta.lines[selectedLineId] : null;
 
@@ -85,19 +126,17 @@ export function App() {
     }
   }, [selectedLineId, meta, isRidden, toggleRide, data.settings.sound, data.rides, displayRatio]);
 
-  // §5.3 都道府県タップ→地図ジャンプ
   const handleJumpToPref = useCallback((pref: string) => {
     const coord = PREF_COORDS[pref];
     if (coord && flyToFnRef.current) {
       setTab("map");
-      // タブ切替後に飛ぶ(次フレームで MapView が mount 済みを確認)
       setTimeout(() => flyToFnRef.current?.(coord, 9), 50);
     }
   }, []);
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-bg">
-      {/* 地図は常時マウント(非表示でも裏で動かす)してアニメ状態を保持 */}
+      {/* 地図は常時マウント */}
       <div className={tab === "map" ? "absolute inset-0" : "pointer-events-none absolute inset-0 opacity-0"}>
         <MapView
           riddenIds={riddenIds}
@@ -108,7 +147,6 @@ export function App() {
           onFlyToRef={onFlyToRef}
         />
 
-        {/* 上部オーバーレイ(§5.1) */}
         <div className="pointer-events-none absolute inset-x-0 top-0 z-10 p-3">
           <div className="mx-auto max-w-md rounded-token bg-surface/90 px-4 py-2 backdrop-blur">
             <div className="flex items-baseline justify-between text-sm">
@@ -138,25 +176,43 @@ export function App() {
         )}
       </div>
 
-      {/* 統計画面(§5.3) */}
+      {/* 統計(§5.3) */}
       {tab === "stats" && meta && (
-        <div className="absolute inset-0 pt-0">
+        <div className="absolute inset-0">
           <StatsPanel
             meta={meta}
             rides={data.rides}
             themeColor={themeColor}
             onJumpToPref={handleJumpToPref}
-            onOpenShare={() => { /* §10 Phase2 */ }}
+            onOpenShare={() => { /* §10 次フェーズ */ }}
           />
         </div>
       )}
 
-      {/* 称号・設定(Phase2 プレースホルダ) */}
-      {(tab === "achievements" || tab === "settings") && (
+      {/* 称号(§5.4) */}
+      {tab === "achievements" && (
+        <div className="absolute inset-0">
+          <AchievementsView
+            defs={ACHIEVEMENT_DEFS}
+            unlocked={data.unlockedAchievements}
+            themeColor={themeColor}
+          />
+        </div>
+      )}
+
+      {/* 設定(Phase2 プレースホルダ) */}
+      {tab === "settings" && (
         <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-text-dim">
           この画面は Phase 2 で実装予定だよ
         </div>
       )}
+
+      {/* §7.2 称号解除トースト */}
+      <AchievementToast
+        achievementName={toastName}
+        onTap={() => { setTab("achievements"); setToastName(null); }}
+        onDismiss={() => setToastName(null)}
+      />
 
       {loadError && (
         <div className="absolute left-1/2 top-1/2 z-30 -translate-x-1/2 -translate-y-1/2 rounded-token bg-surface px-4 py-3 text-sm text-danger">
@@ -164,14 +220,13 @@ export function App() {
         </div>
       )}
 
-      {/* 下部タブバー */}
       <nav className="absolute inset-x-0 bottom-0 z-30 flex border-t border-surface-2 bg-surface">
         {(
           [
-            ["map", "🗾", "地図"],
-            ["stats", "📊", "統計"],
+            ["map",          "🗾", "地図"],
+            ["stats",        "📊", "統計"],
             ["achievements", "🏆", "称号"],
-            ["settings", "⚙️", "設定"],
+            ["settings",     "⚙️", "設定"],
           ] as [TabId, string, string][]
         ).map(([id, icon, label]) => (
           <button
