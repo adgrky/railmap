@@ -301,6 +301,11 @@ function animateLine(
   const rgba = "rgba(255,255,255,0.95)";
   const start = performance.now();
 
+  // 選択ハイライト(白 width3.5)はビームより上のレイヤーにあり、
+  // 出したままだと白ビームが白ハイライトに隠れて動きが見えない。
+  // アニメ中は選択ハイライトを消し、テーマ色の線の上で光を走らせる。
+  map.setFilter("lines-selected", ["==", ["get", "lineId"], "__none__"]);
+
   // アニメレイヤーをこの路線に絞り込む
   map.setFilter("lines-anim", ["==", ["get", "lineId"], lineId]);
 
