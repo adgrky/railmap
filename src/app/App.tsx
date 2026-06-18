@@ -10,6 +10,7 @@ import { LineSheet } from "./LineSheet";
 import { StatsPanel } from "./StatsPanel";
 import { AchievementsView } from "./AchievementsView";
 import { AchievementToast } from "./AchievementToast";
+import { SettingsView } from "./SettingsView";
 import { ACHIEVEMENT_DEFS } from "./achievementDefs";
 import { playPon } from "./sound";
 import { PREF_COORDS } from "./prefCoords";
@@ -223,10 +224,10 @@ export function App() {
         </div>
       )}
 
-      {/* 設定(Phase2 プレースホルダ) */}
+      {/* 設定(§5.5) */}
       {tab === "settings" && (
-        <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-text-dim">
-          この画面は Phase 2 で実装予定だよ
+        <div className="absolute inset-0">
+          <SettingsView />
         </div>
       )}
 
