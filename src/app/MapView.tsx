@@ -308,19 +308,22 @@ function animateLine(
     const raw = Math.min((now - start) / ANIM_DURATION, 1);
     const progress = easeOut(raw);
 
-    // 光のhead位置: progress ± 0.08 のウィンドウで輝く
-    const head = progress;
-    const tail = Math.max(0, head - 0.08);
-    const afterHead = Math.min(1, head + 0.001);
+    // ストップ位置が重複すると MapLibre が式を無効として黙って捨てるため
+    // 常に厳密単調増加になるよう EPS でクランプする
+    const EPS = 0.002;
+    const head = Math.max(EPS, Math.min(1 - EPS, progress));
+    const tail = Math.max(0, head - 0.1);
+    const afterHead = Math.min(1, head + EPS);
+
+    // ビームがまだ先頭にいる間は 0 からそのまま始める(stops 重複回避)
+    const gradStops: (number | string)[] = tail > 0
+      ? [0, "rgba(0,0,0,0)", tail, rgba, head, rgba, afterHead, "rgba(0,0,0,0)"]
+      : [0, rgba, head, rgba, afterHead, "rgba(0,0,0,0)"];
+    if (afterHead < 1) gradStops.push(1, "rgba(0,0,0,0)");
 
     map.setPaintProperty("lines-anim", "line-gradient", [
       "interpolate", ["linear"], ["line-progress"],
-      0,          "rgba(0,0,0,0)",
-      Math.max(0, tail - 0.02), "rgba(0,0,0,0)",
-      tail,       rgba,
-      head,       rgba,
-      afterHead,  "rgba(0,0,0,0)",
-      1,          "rgba(0,0,0,0)",
+      ...gradStops,
     ]);
 
     if (raw < 1) {
