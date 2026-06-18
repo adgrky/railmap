@@ -57,6 +57,7 @@ function hexToRgba(hex: string, alpha: number): string {
 }
 
 export type AnimateLineCallback = (lineId: string, onComplete: () => void) => void;
+export type FlyToCallback = (center: [number, number], zoom?: number) => void;
 
 type Props = {
   riddenIds: string[];
@@ -64,9 +65,10 @@ type Props = {
   selectedLineId: string | null;
   onSelectLine: (lineId: string | null) => void;
   onAnimateRef?: (fn: AnimateLineCallback) => void;
+  onFlyToRef?: (fn: FlyToCallback) => void;
 };
 
-export function MapView({ riddenIds, themeColor, selectedLineId, onSelectLine, onAnimateRef }: Props) {
+export function MapView({ riddenIds, themeColor, selectedLineId, onSelectLine, onAnimateRef, onFlyToRef }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const loadedRef = useRef(false);
@@ -195,6 +197,12 @@ export function MapView({ riddenIds, themeColor, selectedLineId, onSelectLine, o
         if (onAnimateRef) {
           onAnimateRef((lineId: string, onComplete: () => void) => {
             animateLine(map, lineId, themeColor, animRafRef, onComplete);
+          });
+        }
+        // flyTo 関数を親に渡す(§5.3 都道府県タップ)
+        if (onFlyToRef) {
+          onFlyToRef((center, zoom = 9) => {
+            map.flyTo({ center, zoom, duration: 800 });
           });
         }
       });

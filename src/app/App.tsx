@@ -1,11 +1,13 @@
-// railmap ルート(SPEC §5.1 / §5.2 / §7.1)。app層。
+// railmap ルート(SPEC §5.1 / §5.2 / §5.3 / §7.1)。app層。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Meta, ThemeColor } from "../types";
 import { useRailStore } from "../core/store";
 import { formatRatio, nationalRatio, riddenKm } from "../core/progress";
-import { MapView, type AnimateLineCallback } from "./MapView";
+import { MapView, type AnimateLineCallback, type FlyToCallback } from "./MapView";
 import { LineSheet } from "./LineSheet";
+import { StatsPanel } from "./StatsPanel";
 import { playPon } from "./sound";
+import { PREF_COORDS } from "./prefCoords";
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -23,7 +25,7 @@ export function App() {
   const [selectedLineId, setSelectedLineId] = useState<string | null>(null);
   const [tab, setTab] = useState<TabId>("map");
 
-  // §7.1 达成率カウントアップ表示用(アニメ中は旧値を使い、完了後に新値へカチカチ)
+  // §7.1 達成率カウントアップ表示用
   const [displayRatio, setDisplayRatio] = useState(0);
   const countUpRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -31,51 +33,43 @@ export function App() {
   const toggleRide = useRailStore((s) => s.toggleRide);
   const isRidden = useRailStore((s) => s.isRidden);
 
-  // アニメーション関数(MapViewから受け取る)
   const animateFnRef = useRef<AnimateLineCallback | null>(null);
-  const onAnimateRef = useCallback((fn: AnimateLineCallback) => {
-    animateFnRef.current = fn;
-  }, []);
+  const flyToFnRef = useRef<FlyToCallback | null>(null);
+
+  const onAnimateRef = useCallback((fn: AnimateLineCallback) => { animateFnRef.current = fn; }, []);
+  const onFlyToRef   = useCallback((fn: FlyToCallback)       => { flyToFnRef.current   = fn; }, []);
 
   useEffect(() => {
     fetch(`${BASE}data/meta.json`)
       .then((r) => { if (!r.ok) throw new Error(`meta.json ${r.status}`); return r.json(); })
-      .then((m: Meta) => { setMeta(m); })
+      .then((m: Meta) => setMeta(m))
       .catch((e) => setLoadError(String(e)));
   }, []);
 
   const riddenIds = useMemo(() => Object.keys(data.rides), [data.rides]);
   const themeColor = THEME_HEX[data.settings.theme];
   const ratio = meta ? nationalRatio(meta, data.rides) : 0;
-  const km = meta ? riddenKm(meta, data.rides) : 0;
+  const km    = meta ? riddenKm(meta, data.rides) : 0;
 
-  // displayRatio: 通常は ratio と同期。アニメ中のカウントアップで更新される。
   useEffect(() => { setDisplayRatio(ratio); }, [ratio]);
 
   const selectedMeta = selectedLineId && meta ? meta.lines[selectedLineId] : null;
 
-  /** [乗った!] / [取り消す] 押下(§7.1 アニメ統合)。 */
   const handleToggle = useCallback(() => {
     if (!selectedLineId || !meta) return;
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const wasRidden = isRidden(selectedLineId);
 
     if (!wasRidden) {
-      // 先にストアを更新(MapView の riddenIds が変わり line-gradient の filter が更新される)
       toggleRide(selectedLineId);
-
-      // 効果音(§7.1 step4)
       if (data.settings.sound) playPon();
+      if (reducedMotion) return;
 
-      if (reducedMotion) return; // §7.1 step5: reduced-motion は即時
-
-      // アニメ開始
       const prevRatio = displayRatio;
-      const nextRatio = meta ? nationalRatio(meta, { ...data.rides, [selectedLineId]: { status: "full", count: 1 } }) : displayRatio;
+      const nextRatio = nationalRatio(meta, { ...data.rides, [selectedLineId]: { status: "full", count: 1 } });
 
       if (animateFnRef.current) {
         animateFnRef.current(selectedLineId, () => {
-          // アニメ完了コールバック: step3 カウントアップ
           if (countUpRef.current) clearInterval(countUpRef.current);
           const steps = 20;
           let i = 0;
@@ -87,58 +81,79 @@ export function App() {
         });
       }
     } else {
-      // 取り消しはアニメなしで即時
       toggleRide(selectedLineId);
     }
   }, [selectedLineId, meta, isRidden, toggleRide, data.settings.sound, data.rides, displayRatio]);
 
+  // §5.3 都道府県タップ→地図ジャンプ
+  const handleJumpToPref = useCallback((pref: string) => {
+    const coord = PREF_COORDS[pref];
+    if (coord && flyToFnRef.current) {
+      setTab("map");
+      // タブ切替後に飛ぶ(次フレームで MapView が mount 済みを確認)
+      setTimeout(() => flyToFnRef.current?.(coord, 9), 50);
+    }
+  }, []);
+
   return (
     <div className="relative h-full w-full overflow-hidden bg-bg">
-      {tab === "map" && (
-        <>
-          <MapView
-            riddenIds={riddenIds}
-            themeColor={themeColor}
-            selectedLineId={selectedLineId}
-            onSelectLine={setSelectedLineId}
-            onAnimateRef={onAnimateRef}
-          />
+      {/* 地図は常時マウント(非表示でも裏で動かす)してアニメ状態を保持 */}
+      <div className={tab === "map" ? "absolute inset-0" : "pointer-events-none absolute inset-0 opacity-0"}>
+        <MapView
+          riddenIds={riddenIds}
+          themeColor={themeColor}
+          selectedLineId={selectedLineId}
+          onSelectLine={setSelectedLineId}
+          onAnimateRef={onAnimateRef}
+          onFlyToRef={onFlyToRef}
+        />
 
-          {/* 上部オーバーレイ: ミニ達成バー + 総走破距離(§5.1) */}
-          <div className="pointer-events-none absolute inset-x-0 top-0 z-10 p-3">
-            <div className="mx-auto max-w-md rounded-token bg-surface/90 px-4 py-2 backdrop-blur">
-              <div className="flex items-baseline justify-between text-sm">
-                <span className="text-text-dim">
-                  全国{" "}
-                  <span className="tnum font-bold text-text">
-                    {formatRatio(displayRatio)}
-                  </span>
-                </span>
-                <span className="tnum text-text-dim">{km.toFixed(1)} km</span>
-              </div>
-              <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
-                <div
-                  className="h-full rounded-full transition-[width] duration-300"
-                  style={{ width: `${Math.min(100, displayRatio * 100)}%`, background: themeColor }}
-                />
-              </div>
+        {/* 上部オーバーレイ(§5.1) */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 p-3">
+          <div className="mx-auto max-w-md rounded-token bg-surface/90 px-4 py-2 backdrop-blur">
+            <div className="flex items-baseline justify-between text-sm">
+              <span className="text-text-dim">
+                全国{" "}
+                <span className="tnum font-bold text-text">{formatRatio(displayRatio)}</span>
+              </span>
+              <span className="tnum text-text-dim">{km.toFixed(1)} km</span>
+            </div>
+            <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
+              <div
+                className="h-full rounded-full transition-[width] duration-300"
+                style={{ width: `${Math.min(100, displayRatio * 100)}%`, background: themeColor }}
+              />
             </div>
           </div>
+        </div>
 
-          {selectedLineId && selectedMeta && (
-            <LineSheet
-              lineId={selectedLineId}
-              meta={selectedMeta}
-              isRidden={isRidden(selectedLineId)}
-              onToggle={handleToggle}
-              onClose={() => setSelectedLineId(null)}
-            />
-          )}
-        </>
+        {selectedLineId && selectedMeta && tab === "map" && (
+          <LineSheet
+            lineId={selectedLineId}
+            meta={selectedMeta}
+            isRidden={isRidden(selectedLineId)}
+            onToggle={handleToggle}
+            onClose={() => setSelectedLineId(null)}
+          />
+        )}
+      </div>
+
+      {/* 統計画面(§5.3) */}
+      {tab === "stats" && meta && (
+        <div className="absolute inset-0 pt-0">
+          <StatsPanel
+            meta={meta}
+            rides={data.rides}
+            themeColor={themeColor}
+            onJumpToPref={handleJumpToPref}
+            onOpenShare={() => { /* §10 Phase2 */ }}
+          />
+        </div>
       )}
 
-      {tab !== "map" && (
-        <div className="flex h-full items-center justify-center px-6 text-center text-text-dim">
+      {/* 称号・設定(Phase2 プレースホルダ) */}
+      {(tab === "achievements" || tab === "settings") && (
+        <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-text-dim">
           この画面は Phase 2 で実装予定だよ
         </div>
       )}
