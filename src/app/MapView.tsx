@@ -58,6 +58,7 @@ function hexToRgba(hex: string, alpha: number): string {
 
 export type AnimateLineCallback = (lineId: string, onComplete: () => void) => void;
 export type FlyToCallback = (center: [number, number], zoom?: number) => void;
+export type CaptureMapCallback = () => Promise<HTMLCanvasElement>;
 
 type Props = {
   riddenIds: string[];
@@ -66,9 +67,10 @@ type Props = {
   onSelectLine: (lineId: string | null) => void;
   onAnimateRef?: (fn: AnimateLineCallback) => void;
   onFlyToRef?: (fn: FlyToCallback) => void;
+  onCaptureRef?: (fn: CaptureMapCallback) => void;
 };
 
-export function MapView({ riddenIds, themeColor, selectedLineId, onSelectLine, onAnimateRef, onFlyToRef }: Props) {
+export function MapView({ riddenIds, themeColor, selectedLineId, onSelectLine, onAnimateRef, onFlyToRef, onCaptureRef }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const loadedRef = useRef(false);
@@ -203,6 +205,29 @@ export function MapView({ riddenIds, themeColor, selectedLineId, onSelectLine, o
         if (onFlyToRef) {
           onFlyToRef((center, zoom = 9) => {
             map.flyTo({ center, zoom, duration: 800 });
+          });
+        }
+        // キャプチャ関数を親に渡す(§10: 全国ビューで撮影→元に戻す)
+        if (onCaptureRef) {
+          onCaptureRef((): Promise<HTMLCanvasElement> => {
+            return new Promise((resolve) => {
+              const cur = { center: map.getCenter(), zoom: map.getZoom() };
+              map.jumpTo({ center: [137.0, 38.0], zoom: 4.8 });
+              const doCapture = () => {
+                const c = map.getCanvas();
+                // Canvas の内容を別 canvas にコピー(元はGL描画で直接参照が失われる場合がある)
+                const out = document.createElement("canvas");
+                out.width = c.width; out.height = c.height;
+                out.getContext("2d")!.drawImage(c, 0, 0);
+                map.jumpTo(cur);
+                resolve(out);
+              };
+              // idle イベントで描画完了を待つ(最大500ms でタイムアウト)
+              let done = false;
+              const onIdle = () => { if (!done) { done = true; doCapture(); } };
+              map.once("idle", onIdle);
+              setTimeout(() => { if (!done) { done = true; map.off("idle", onIdle); doCapture(); } }, 500);
+            });
           });
         }
       });

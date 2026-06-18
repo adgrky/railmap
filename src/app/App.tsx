@@ -4,7 +4,8 @@ import type { Meta, ThemeColor } from "../types";
 import { useRailStore } from "../core/store";
 import { formatRatio, nationalRatio, riddenKm } from "../core/progress";
 import { buildStats, checkNewAchievements } from "../core/achievements";
-import { MapView, type AnimateLineCallback, type FlyToCallback } from "./MapView";
+import { MapView, type AnimateLineCallback, type FlyToCallback, type CaptureMapCallback } from "./MapView";
+import { generateShareImage, shareOrDownload } from "../core/shareImage";
 import { LineSheet } from "./LineSheet";
 import { StatsPanel } from "./StatsPanel";
 import { AchievementsView } from "./AchievementsView";
@@ -65,8 +66,10 @@ export function App() {
 
   const animateFnRef = useRef<AnimateLineCallback | null>(null);
   const flyToFnRef   = useRef<FlyToCallback | null>(null);
-  const onAnimateRef = useCallback((fn: AnimateLineCallback) => { animateFnRef.current = fn; }, []);
-  const onFlyToRef   = useCallback((fn: FlyToCallback)       => { flyToFnRef.current   = fn; }, []);
+  const captureFnRef = useRef<CaptureMapCallback | null>(null);
+  const onAnimateRef = useCallback((fn: AnimateLineCallback)  => { animateFnRef.current = fn; }, []);
+  const onFlyToRef   = useCallback((fn: FlyToCallback)        => { flyToFnRef.current   = fn; }, []);
+  const onCaptureRef = useCallback((fn: CaptureMapCallback)   => { captureFnRef.current  = fn; }, []);
 
   useEffect(() => {
     fetch(`${BASE}data/meta.json`)
@@ -126,6 +129,21 @@ export function App() {
     }
   }, [selectedLineId, meta, isRidden, toggleRide, data.settings.sound, data.rides, displayRatio]);
 
+  // §10 シェア画像生成(通常 / 称号バリアント)
+  const handleShare = useCallback(async (achievementName?: string) => {
+    if (!captureFnRef.current || !meta) return;
+    const mapCanvas = await captureFnRef.current();
+    const blob = await generateShareImage({
+      mapCanvas,
+      nationalRatio: nationalRatio(meta, data.rides),
+      riddenKm: riddenKm(meta, data.rides),
+      themeColor,
+      achievementName,
+    });
+    const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    await shareOrDownload(blob, `railmap-${date}.png`);
+  }, [meta, data.rides, themeColor]);
+
   const handleJumpToPref = useCallback((pref: string) => {
     const coord = PREF_COORDS[pref];
     if (coord && flyToFnRef.current) {
@@ -145,6 +163,7 @@ export function App() {
           onSelectLine={setSelectedLineId}
           onAnimateRef={onAnimateRef}
           onFlyToRef={onFlyToRef}
+          onCaptureRef={onCaptureRef}
         />
 
         <div className="pointer-events-none absolute inset-x-0 top-0 z-10 p-3">
@@ -184,7 +203,7 @@ export function App() {
             rides={data.rides}
             themeColor={themeColor}
             onJumpToPref={handleJumpToPref}
-            onOpenShare={() => { /* §10 次フェーズ */ }}
+            onOpenShare={() => handleShare()}
           />
         </div>
       )}
@@ -196,6 +215,10 @@ export function App() {
             defs={ACHIEVEMENT_DEFS}
             unlocked={data.unlockedAchievements}
             themeColor={themeColor}
+            onShareAchievement={(id) => {
+              const def = ACHIEVEMENT_DEFS.find((d) => d.id === id);
+              if (def) handleShare(def.name);
+            }}
           />
         </div>
       )}
