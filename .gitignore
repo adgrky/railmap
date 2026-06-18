@@ -1,0 +1,9 @@
+node_modules/
+dist/
+dist-ssr/
+*.local
+.DS_Store
+# データ前処理(配布物に含めない)
+tools/raw/
+tools/__pycache__/
+*.pyc
