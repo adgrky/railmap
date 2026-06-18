@@ -49,12 +49,6 @@ function easeOut(t: number): number {
 }
 
 /** themeColor の hex を rgba(r,g,b,alpha) に変換(グロー用)。 */
-function hexToRgba(hex: string, alpha: number): string {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return `rgba(${r},${g},${b},${alpha})`;
-}
 
 export type AnimateLineCallback = (lineId: string, onComplete: () => void) => void;
 export type FlyToCallback = (center: [number, number], zoom?: number) => void;
@@ -293,7 +287,7 @@ function applySelected(map: maplibregl.Map, selectedLineId: string | null) {
 function animateLine(
   map: maplibregl.Map,
   lineId: string,
-  themeColor: string,
+  _themeColor: string,
   rafRef: React.MutableRefObject<number | null>,
   onComplete: () => void
 ): void {
