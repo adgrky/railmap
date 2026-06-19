@@ -9,6 +9,7 @@ export type LineMeta = {
   lengthKm: number;
   railType: RailType;
   pref: string[]; // Phase 2 で付与
+  segCount: number;
 };
 
 export type Meta = {
@@ -33,13 +34,14 @@ export type LineProps = {
 
 // --- ユーザーデータ(localStorage, SPEC §4) ---
 
-export type RideStatus = "full"; // Phase 3 で "partial" 追加予定
+export type RideStatus = "full" | "partial";
 
 export type Ride = {
   status: RideStatus;
   firstDate?: string; // YYYY-MM-DD 任意
   count: number; // 既定1
   memo?: string; // 140字まで
+  riddenSegments?: number[]; // partial のみ使用
 };
 
 export type ThemeColor = "neon-blue" | "neon-green" | "neon-pink";

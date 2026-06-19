@@ -1,5 +1,5 @@
 // railmap ルート(SPEC §5.1/§5.2/§5.3/§5.4/§7.1/§7.2/§9)。app層。
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Meta, ThemeColor } from "../types";
 import { useRailStore } from "../core/store";
 import { formatRatio, nationalRatio, riddenKm } from "../core/progress";
@@ -44,8 +44,9 @@ export function App() {
   const [kmPop, setKmPop] = useState<{ key: number; km: number } | null>(null);
 
   const data = useRailStore((s) => s.data);
-  const toggleRide = useRailStore((s) => s.toggleRide);
-  const isRidden  = useRailStore((s) => s.isRidden);
+  const addRide = useRailStore((s) => s.addRide);
+  const removeRide = useRailStore((s) => s.removeRide);
+  const toggleSegment = useRailStore((s) => s.toggleSegment);
   // 称号解除はストアの setState で直接書き込む
   const setAchievementUnlocked = useCallback((id: string) => {
     useRailStore.setState((s) => ({
@@ -84,7 +85,6 @@ export function App() {
       .catch((e) => setLoadError(String(e)));
   }, []);
 
-  const riddenIds = useMemo(() => Object.keys(data.rides), [data.rides]);
   const themeColor = THEME_HEX[data.settings.theme];
   const ratio = meta ? nationalRatio(meta, data.rides) : 0;
   const km    = meta ? riddenKm(meta, data.rides) : 0;
@@ -105,40 +105,59 @@ export function App() {
 
   const selectedMeta = selectedLineId && meta ? meta.lines[selectedLineId] : null;
 
+  // 全区間乗った！(full 追加 or partial → full 昇格) + 演出
   const handleToggle = useCallback(() => {
     if (!selectedLineId || !meta) return;
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const wasRidden = isRidden(selectedLineId);
+    const ride = data.rides[selectedLineId];
+    const isFull = ride?.status === "full";
 
-    if (!wasRidden) {
-      const addedKm = meta.lines[selectedLineId]?.lengthKm ?? 0;
-      toggleRide(selectedLineId);
-      if (data.settings.sound) playPon();
-      if (reducedMotion) return;
-
-      // 閃光フラッシュ + km ポップ
-      setFlashKey(k => k + 1);
-      setKmPop({ key: Date.now(), km: addedKm });
-
-      const prevRatio = displayRatio;
-      const nextRatio = nationalRatio(meta, { ...data.rides, [selectedLineId]: { status: "full", count: 1 } });
-
-      if (animateFnRef.current) {
-        animateFnRef.current(selectedLineId, () => {
-          if (countUpRef.current) clearInterval(countUpRef.current);
-          const steps = 20;
-          let i = 0;
-          countUpRef.current = setInterval(() => {
-            i++;
-            setDisplayRatio(prevRatio + (nextRatio - prevRatio) * (i / steps));
-            if (i >= steps) { clearInterval(countUpRef.current!); countUpRef.current = null; }
-          }, 15);
-        });
-      }
-    } else {
-      toggleRide(selectedLineId);
+    if (isFull) {
+      // full → 取り消す
+      removeRide(selectedLineId);
+      return;
     }
-  }, [selectedLineId, meta, isRidden, toggleRide, data.settings.sound, data.rides, displayRatio]);
+
+    // 未乗 or partial → full に追加/昇格
+    const lineMeta = meta.lines[selectedLineId];
+    const addedKm = lineMeta?.lengthKm ?? 0;
+    addRide(selectedLineId);
+    if (data.settings.sound) playPon();
+
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reducedMotion) return;
+
+    setFlashKey((k) => k + 1);
+    setKmPop({ key: Date.now(), km: addedKm });
+
+    const prevRatio = displayRatio;
+    const nextRatio = nationalRatio(meta, { ...data.rides, [selectedLineId]: { status: "full", count: 1 } });
+
+    if (animateFnRef.current) {
+      animateFnRef.current(selectedLineId, () => {
+        if (countUpRef.current) clearInterval(countUpRef.current);
+        const steps = 20;
+        let i = 0;
+        countUpRef.current = setInterval(() => {
+          i++;
+          setDisplayRatio(prevRatio + (nextRatio - prevRatio) * (i / steps));
+          if (i >= steps) { clearInterval(countUpRef.current!); countUpRef.current = null; }
+        }, 15);
+      });
+    }
+  }, [selectedLineId, meta, addRide, removeRide, data.settings.sound, data.rides, displayRatio]);
+
+  // 区間単位のトグル
+  const handleToggleSegment = useCallback((segIdx: number) => {
+    if (!selectedLineId || !meta) return;
+    const segCount = meta.lines[selectedLineId]?.segCount ?? 1;
+    toggleSegment(selectedLineId, segIdx, segCount);
+  }, [selectedLineId, meta, toggleSegment]);
+
+  // 全区間取り消す(partial 専用)
+  const handleRemove = useCallback(() => {
+    if (!selectedLineId) return;
+    removeRide(selectedLineId);
+  }, [selectedLineId, removeRide]);
 
   // §10 シェア画像生成(通常 / 称号バリアント)
   const handleShare = useCallback(async (achievementName?: string) => {
@@ -168,7 +187,7 @@ export function App() {
       {/* 地図は常時マウント */}
       <div className={tab === "map" ? "absolute inset-0" : "pointer-events-none absolute inset-0 opacity-0"}>
         <MapView
-          riddenIds={riddenIds}
+          rides={data.rides}
           themeColor={themeColor}
           selectedLineId={selectedLineId}
           onSelectLine={setSelectedLineId}
@@ -199,8 +218,11 @@ export function App() {
           <LineSheet
             lineId={selectedLineId}
             meta={selectedMeta}
-            isRidden={isRidden(selectedLineId)}
+            ride={data.rides[selectedLineId] ?? null}
+            themeColor={themeColor}
             onToggle={handleToggle}
+            onRemove={handleRemove}
+            onToggleSegment={handleToggleSegment}
             onClose={() => setSelectedLineId(null)}
           />
         )}

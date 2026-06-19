@@ -41,7 +41,13 @@ export function buildStats(meta: Meta, rides: SaveData["rides"]): AchievementSta
   for (const [lineId, m] of Object.entries(meta.lines)) {
     for (const pref of m.pref) {
       prefTotal[pref] = (prefTotal[pref] ?? 0) + m.lengthKm;
-      if (rides[lineId]) prefRidden[pref] = (prefRidden[pref] ?? 0) + m.lengthKm;
+      const ride = rides[lineId];
+      if (ride) {
+        const km = ride.status === "full"
+          ? m.lengthKm
+          : ((ride.riddenSegments?.length ?? 0) / (m.segCount || 1)) * m.lengthKm;
+        prefRidden[pref] = (prefRidden[pref] ?? 0) + km;
+      }
     }
   }
   const prefCompletion: Record<string, number> = {};

@@ -1,6 +1,7 @@
 // MapLibre ラッパ(SPEC §5.1 / §6 / §7.1)。app層(railmap固有)。
 import { useEffect, useRef } from "react";
 import maplibregl, { StyleSpecification, LayerSpecification } from "maplibre-gl";
+import type { SaveData } from "../types";
 
 const BASE = import.meta.env.BASE_URL;
 const LINES_URL = `${BASE}data/lines.geojson`;
@@ -55,7 +56,7 @@ export type FlyToCallback = (center: [number, number], zoom?: number) => void;
 export type CaptureMapCallback = () => Promise<HTMLCanvasElement>;
 
 type Props = {
-  riddenIds: string[];
+  rides: SaveData["rides"];
   themeColor: string;
   selectedLineId: string | null;
   onSelectLine: (lineId: string | null) => void;
@@ -64,7 +65,7 @@ type Props = {
   onCaptureRef?: (fn: CaptureMapCallback) => void;
 };
 
-export function MapView({ riddenIds, themeColor, selectedLineId, onSelectLine, onAnimateRef, onFlyToRef, onCaptureRef }: Props) {
+export function MapView({ rides, themeColor, selectedLineId, onSelectLine, onAnimateRef, onFlyToRef, onCaptureRef }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const loadedRef = useRef(false);
@@ -186,8 +187,8 @@ export function MapView({ riddenIds, themeColor, selectedLineId, onSelectLine, o
         });
 
         loadedRef.current = true;
-        applyRidden(map, riddenIds, themeColor);
-        applySelected(map, selectedLineId, riddenIds);
+        applyRidden(map, rides, themeColor);
+        applySelected(map, selectedLineId, Object.keys(rides));
 
         // アニメーション関数を親に渡す(§7.1)
         if (onAnimateRef) {
@@ -259,25 +260,44 @@ export function MapView({ riddenIds, themeColor, selectedLineId, onSelectLine, o
 
   useEffect(() => {
     const map = mapRef.current;
-    if (map && loadedRef.current) applyRidden(map, riddenIds, themeColor);
-  }, [riddenIds, themeColor]);
+    if (map && loadedRef.current) applyRidden(map, rides, themeColor);
+  }, [rides, themeColor]);
 
-  // riddenIds も deps に加えることで「乗った瞬間に白ハイライトを消す」を確実にする
   useEffect(() => {
     const map = mapRef.current;
-    if (map && loadedRef.current) applySelected(map, selectedLineId, riddenIds);
-  }, [selectedLineId, riddenIds]);
+    if (map && loadedRef.current) applySelected(map, selectedLineId, Object.keys(rides));
+  }, [selectedLineId, rides]);
 
   return <div ref={containerRef} className="absolute inset-0" />;
 }
 
-function applyRidden(map: maplibregl.Map, riddenIds: string[], themeColor: string) {
-  const filter = ["in", ["get", "lineId"], ["literal", riddenIds]] as maplibregl.FilterSpecification;
-  map.setFilter("lines-glow", filter);
-  map.setFilter("lines-visited", filter);
-  map.setFilter("lines-unvisited", ["!", filter] as maplibregl.FilterSpecification);
+function applyRidden(map: maplibregl.Map, rides: SaveData["rides"], themeColor: string) {
+  const fullIds: string[] = [];
+  const partialKeys: string[] = [];
+  for (const [lineId, ride] of Object.entries(rides)) {
+    if (ride.status === "full") {
+      fullIds.push(lineId);
+    } else {
+      for (const segIdx of ride.riddenSegments ?? []) {
+        partialKeys.push(`${lineId}__${segIdx}`);
+      }
+    }
+  }
+  // 乗済みフィルタ: full 路線 OR partial 区間キー一致
+  const riddenFilter: maplibregl.FilterSpecification = partialKeys.length > 0
+    ? ["any",
+        ["in", ["get", "lineId"], ["literal", fullIds]],
+        ["in",
+          ["concat", ["get", "lineId"], ["literal", "__"], ["to-string", ["get", "segIdx"]]],
+          ["literal", partialKeys],
+        ],
+      ] as maplibregl.FilterSpecification
+    : ["in", ["get", "lineId"], ["literal", fullIds]] as maplibregl.FilterSpecification;
+
+  map.setFilter("lines-glow", riddenFilter);
+  map.setFilter("lines-visited", riddenFilter);
+  map.setFilter("lines-unvisited", ["!", riddenFilter] as maplibregl.FilterSpecification);
   map.setPaintProperty("lines-glow", "line-color", themeColor);
-  // visited は line-gradient で色を持つため line-color 更新は不要
 }
 
 // 乗済み路線は白ハイライトを出さない（乗ったらテーマ色グローのまま）

@@ -1,12 +1,17 @@
 // 達成率計算(SPEC §8.1 / §8.3)。core層: app に依存しない。距離ベース。
 import type { Meta, RailType, SaveData } from "../types";
 
-/** 乗車済 lineId の総走破距離(km)。meta に存在しない lineId は無視。 */
+/** 乗車済 lineId の総走破距離(km)。partial は区間比率で按分。 */
 export function riddenKm(meta: Meta, rides: SaveData["rides"]): number {
   let sum = 0;
-  for (const lineId of Object.keys(rides)) {
+  for (const [lineId, ride] of Object.entries(rides)) {
     const m = meta.lines[lineId];
-    if (m) sum += m.lengthKm;
+    if (!m) continue;
+    if (ride.status === "full") {
+      sum += m.lengthKm;
+    } else {
+      sum += ((ride.riddenSegments?.length ?? 0) / (m.segCount || 1)) * m.lengthKm;
+    }
   }
   return Math.round(sum * 10) / 10;
 }
@@ -23,9 +28,14 @@ export function railTypeRatio(meta: Meta, rides: SaveData["rides"], railType: Ra
   const total = meta.totals.byRailType[railType] ?? 0;
   if (total <= 0) return 0;
   let ridden = 0;
-  for (const lineId of Object.keys(rides)) {
+  for (const [lineId, ride] of Object.entries(rides)) {
     const m = meta.lines[lineId];
-    if (m && m.railType === railType) ridden += m.lengthKm;
+    if (!m || m.railType !== railType) continue;
+    if (ride.status === "full") {
+      ridden += m.lengthKm;
+    } else {
+      ridden += ((ride.riddenSegments?.length ?? 0) / (m.segCount || 1)) * m.lengthKm;
+    }
   }
   return ridden / total;
 }
