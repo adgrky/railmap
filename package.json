@@ -15,6 +15,7 @@
     "zustand": "^4.5.5"
   },
   "devDependencies": {
+    "@bubblewrap/cli": "^1.24.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
