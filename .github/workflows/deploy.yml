@@ -19,7 +19,7 @@ jobs:
           cache: 'npm'
 
       - name: 依存パッケージのインストール
-        run: npm ci
+        run: npm install
 
       - name: ビルド
         run: npm run build
