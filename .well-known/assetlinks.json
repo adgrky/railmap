@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.adgrky.railmap",
+      "sha256_cert_fingerprints": [
+        "1F:91:81:13:86:25:17:16:64:10:11:24:C1:4D:A9:86:79:1F:39:1C:F9:57:7A:45:03:C9:50:2F:D4:61:07:19"
+      ]
+    }
+  }
+]
